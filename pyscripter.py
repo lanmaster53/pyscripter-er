@@ -8,14 +8,22 @@ class BaseScript(object):
         self.toolFlag = toolFlag
         self.messageIsRequest = messageIsRequest
         self.messageInfo = messageInfo
-        self.verbose = False
-        self.in_scope = self.callbacks.isInScope(self.messageInfo.getUrl())
+        self.debug = False
 
-    def debug(self, message):
+    def _in_scope(self):
+
+        in_scope = self.callbacks.isInScope(self.messageInfo.getUrl())
+        mode = 'Response' if self.messageIsRequest else 'Request'
+        scope = 'in scope' if in_scope else 'not in scope'
+        url = self.messageInfo.url.toString()
+        self._debug('{} {}: {}'.format(mode, scope, url))
+        return in_scope
+
+    def _debug(self, message):
         """Provides an interface for verbose output."""
 
-        if self.verbose:
-            print(message)
+        if self.debug:
+            print('[DEBUG] {}'.format(message))
 
     def help(self):
         """Displays this help interface."""
@@ -37,7 +45,7 @@ class BaseScript(object):
                 for func in funcs:
                     print('\n{}:\n'.format(func.__name__))
                     print(func(getattr(self, api)))
-        self.debug('Introspection complete.')
+        self._debug('Introspection complete.')
 
     def remove_header(self, headers, header_name):
         """Removes a specific header from a list of headers."""
@@ -45,7 +53,7 @@ class BaseScript(object):
         for header in headers:
             if header.startswith(header_name):
                 headers.remove(header)
-                self.debug('Header removed: {}'.format(header_name))
+                self._debug('Header removed: {}'.format(header_name))
                 break
         return headers
 
@@ -60,7 +68,7 @@ class BaseScript(object):
             body = self.messageInfo.getRequest()[request.getBodyOffset():]
             new_request = self.helpers.buildHttpMessage(headers, body)
             self.messageInfo.setRequest(new_request)
-            self.debug('Headers removed: {}'.format(', '.join(header_names)))
+            self._debug('Headers removed: {}'.format(', '.join(header_names)))
 
     def replace_bearer_token(self, new_token):
         """Replaces a Bearer token in the current request."""
@@ -73,7 +81,7 @@ class BaseScript(object):
             body = self.messageInfo.getRequest()[request.getBodyOffset():]
             new_request = self.helpers.buildHttpMessage(headers, body)
             self.messageInfo.setRequest(new_request)
-            self.debug('Token replaced.')
+            self._debug('Token replaced.')
 
     def enable_passive_audit_checks(self):
         """Runs passive check methods against in-scope proxy traffic.
@@ -84,11 +92,11 @@ class BaseScript(object):
         and the method must receive it as an argument.
         """
 
-        if self.toolFlag == self.callbacks.TOOL_PROXY and self.in_scope:
-            self.debug('Passive checks enabled.')
+        if self.toolFlag == self.callbacks.TOOL_PROXY and self._in_scope():
+            self._debug('Passive checks enabled.')
             methods =[x for x in dir(self.__class__) if x.startswith('_passive_')]
             for method in methods:
-                mode = method.split('_')[1]
+                mode = method.split('_')[2]
                 if mode == 'request' and self.messageIsRequest:
                     request = self.messageInfo.getRequest()
                     getattr(self, method)(request)
@@ -104,14 +112,12 @@ class BaseScript(object):
         results = re.findall(r'(<input [^>]*>)', response)
         for result in results:
             if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete', result):
-                issue = CustomIssue(
-                    BasePair=self.messageInfo,
-                    IssueName='Text field with autocomplete enabled',
-                    IssueDetail='The following text field has autocomplete enabled:\n\n<ul><li>' + result.replace('<', '&lt;').replace('>', '&gt;') + '</li></ul>',
-                    Severity='Low',
+                self.create_issue(
+                    issue_name='Text field with autocomplete enabled',
+                    issue_detail='The following text field has autocomplete enabled:\n\n<ul><li>' + result.replace('<', '&lt;').replace('>', '&gt;') + '</li></ul>',
+                    severity='Low',
                 )
-                self.callbacks.addScanIssue(issue)
-        self.debug('Passive check applied: Autocomplete Enabled')
+        self._debug('Passive check applied: Autocomplete Enabled')
 
     def _passive_response_verbose_headers(self, response):
         """Checks for verbose headers in a response."""
@@ -122,24 +128,39 @@ class BaseScript(object):
             name = header.split(':')[0]
             # known bad headers
             if name.lower() in bad_headers:
-                issue = CustomIssue(
-                    BasePair=self.messageInfo,
-                    IssueName='Verbose header',
-                    IssueDetail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
-                    Severity='Low',
+                self.create_issue(
+                    issue_name='Verbose header',
+                    issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
+                    severity='Low',
                 )
-                self.callbacks.addScanIssue(issue)
             # custom headers
             elif name.lower().startswith('x-'):
-                issue = CustomIssue(
-                    BasePair=self.messageInfo,
-                    IssueName='Interesting header',
-                    IssueDetail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
-                    Severity='Low',
-                    Confidence='Tentative',
+                self.create_issue(
+                    issue_name='Interesting header',
+                    issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
+                    severity='Low',
+                    confidence='Tentative',
                 )
-                self.callbacks.addScanIssue(issue)
-        self.debug('Passive check applied: Verbose Headers')
+        self._debug('Passive check applied: Verbose Headers')
+
+    def create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
+        """Creates a Burp Suite issue.
+
+        Severity: High, Medium, Low, Information, False positive
+        Confidence: Certain, Firm, Tentative
+        """
+
+        issue = CustomIssue(
+            BasePair=self.messageInfo,
+            IssueName=issue_name,
+            IssueDetail=issue_detail,
+            IssueBackground=issue_background,
+            RemediationDetail=remediation_detail,
+            RemediationBackground=remediation_background,
+            Severity=severity,
+            Confidence=confidence,
+        )
+        self.callbacks.addScanIssue(issue)
 
     def extract_all_from_response(self, pattern):
         """Extracts multiple instances of a REGEX capture group from the 
@@ -168,7 +189,7 @@ class BaseScript(object):
                 headers = self.helpers.analyzeResponse(response).getHeaders()
                 new_response = self.helpers.buildHttpMessage(headers, self.helpers.stringToBytes(body))
                 self.messageInfo.setResponse(new_response)
-                self.debug('Response replaced from: {}'.format(url))
+                self._debug('Response replaced from: {}'.format(url))
 
 
 from burp import IScanIssue
@@ -176,19 +197,19 @@ from burp import IScanIssue
 
 class CustomIssue(IScanIssue):
 
-    def __init__(self, BasePair, Confidence='Certain', IssueBackground=None, IssueDetail=None, IssueName='Python Scripter generated issue', RemediationBackground=None, RemediationDetail=None, Severity='High'):
+    def __init__(self, BasePair, IssueName='Python Scripter generated issue', IssueDetail=None, IssueBackground=None, RemediationDetail=None, RemediationBackground=None, Severity='High', Confidence='Certain'):
 
         self.HttpMessages=[BasePair] # list of HTTP Messages
         self.HttpService=BasePair.getHttpService() # HTTP Service
         self.Url=BasePair.getUrl() # Java URL
-        self.Confidence = Confidence # "Certain", "Firm" or "Tentative"
-        self.IssueBackground = IssueBackground # String or None
-        self.IssueDetail = IssueDetail # String or None
-        self.IssueName = IssueName # String
         self.IssueType = 134217728 # always "extension generated"
-        self.RemediationBackground = RemediationBackground # String or None
+        self.IssueName = IssueName # String
+        self.IssueDetail = IssueDetail # String or None
+        self.IssueBackground = IssueBackground # String or None
         self.RemediationDetail = RemediationDetail # String or None
+        self.RemediationBackground = RemediationBackground # String or None
         self.Severity = Severity # "High", "Medium", "Low", "Information" or "False positive"
+        self.Confidence = Confidence # "Certain", "Firm" or "Tentative"
 
     def getHttpMessages(self):
 
