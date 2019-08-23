@@ -1,6 +1,6 @@
 class BaseScript(object):
 
-    def __init__(self, extender, callbacks, helpers, toolFlag, messageIsRequest, messageInfo):
+    def __init__(self, extender, callbacks, helpers, toolFlag, messageIsRequest, messageInfo, macroItems):
 
         self.extender = extender
         self.callbacks = callbacks
@@ -8,6 +8,7 @@ class BaseScript(object):
         self.toolFlag = toolFlag
         self.messageIsRequest = messageIsRequest
         self.messageInfo = messageInfo
+        self.macroItems = macroItems
         self.debug = False
 
     def _context(context=None, tools=[], scope=False):
@@ -59,6 +60,24 @@ class BaseScript(object):
 
         if self.debug:
             print('[DEBUG] {}'.format(message))
+
+    def macro_extract(self, pattern):
+        """Extracts a REGEX capture group from a macro response for use in a 
+        request. Returns the extracted item.
+
+        Requires a session handling rule to pass the result of a macro to the 
+        extension.
+
+        Tip: Create and copy the REGEX pattern from the macro editor.
+        """
+
+        if not self._in_context(context='request', tools=[self.callbacks.TOOL_MACRO]): return
+
+        import re
+
+        response = self.macroItems[0].getResponse()
+        match = re.search(pattern, response)
+        return match.group(1)
 
     def help(self):
         """Displays this help interface."""
