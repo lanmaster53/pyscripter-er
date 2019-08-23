@@ -10,7 +10,42 @@ class BaseScript(object):
         self.messageInfo = messageInfo
         self.debug = False
 
+    def _context(context=None, tools=[], scope=False):
+        """Currently unused decorator because it hides the method's signature
+        from introspection, which is needed. See `_in_context` hack below.
+        """
+
+        def wrapper(func):
+            @wraps(func)
+            def wrapped(self, *args, **kwargs):
+                if (context and
+                    context == 'request' and not self.messageIsRequest or
+                    context == 'response' and self.messageIsRequest):
+                    return
+                toolFlags = [getattr(self.callbacks, 'TOOL_{}'.format(t.upper)) for t in tools]
+                if tools and self.toolFlag not in toolFlags:
+                    return
+                if scope and not self._in_scope():
+                    return
+                return func(self, *args, **kwargs)
+            return wrapped
+        return wrapper
+
+    def _in_context(self, context=None, tools=[], scope=False):
+        """Checks the provided parameters against the current context."""
+
+        if (context and
+            context == 'request' and not self.messageIsRequest or
+            context == 'response' and self.messageIsRequest):
+            return False
+        if (tools and self.toolFlag not in tools):
+            return False
+        if (scope and not self._in_scope()):
+            return False
+        return True
+
     def _in_scope(self):
+        """Determines if the current request is in scope."""
 
         in_scope = self.callbacks.isInScope(self.messageInfo.getUrl())
         mode = 'Response' if self.messageIsRequest else 'Request'
@@ -28,26 +63,28 @@ class BaseScript(object):
     def help(self):
         """Displays this help interface."""
 
-        if self.messageIsRequest:
-            print(help(self))
+        if not self._in_context(context='request'): return
+
+        print(help(self))
 
     def introspect(self):
         """Provides introspection into the Python Scripter API."""
+
+        if not self._in_context(context='request'): return
 
         import sys
 
         apis = ('extender', 'callbacks', 'helpers', 'toolFlag', 'messageIsRequest', 'messageInfo')
         funcs = (type, dir)
 
-        if self.messageIsRequest:
-            for api in apis:
-                print('\n{}:\n{}'.format(api, '='*len(api)))
-                for func in funcs:
-                    print('\n{}:\n'.format(func.__name__))
-                    print(func(getattr(self, api)))
+        for api in apis:
+            print('\n{}:\n{}'.format(api, '='*len(api)))
+            for func in funcs:
+                print('\n{}:\n'.format(func.__name__))
+                print(func(getattr(self, api)))
         self._debug('Introspection complete.')
 
-    def remove_header(self, headers, header_name):
+    def _remove_header(self, headers, header_name):
         """Removes a specific header from a list of headers."""
 
         for header in headers:
@@ -60,82 +97,73 @@ class BaseScript(object):
     def remove_headers(self, header_names):
         """Removes a list of headers from the current request."""
 
-        if self.messageIsRequest:
-            request = self.helpers.analyzeRequest(self.messageInfo)
-            headers = request.getHeaders()
-            for header_name in header_names:
-                headers = self.remove_header(headers, header_name)
-            body = self.messageInfo.getRequest()[request.getBodyOffset():]
-            new_request = self.helpers.buildHttpMessage(headers, body)
-            self.messageInfo.setRequest(new_request)
-            self._debug('Headers removed: {}'.format(', '.join(header_names)))
+        if not self._in_context(context='request'): return
+
+        request = self.helpers.analyzeRequest(self.messageInfo)
+        headers = request.getHeaders()
+        for header_name in header_names:
+            headers = self._remove_header(headers, header_name)
+        body = self.messageInfo.getRequest()[request.getBodyOffset():]
+        new_request = self.helpers.buildHttpMessage(headers, body)
+        self.messageInfo.setRequest(new_request)
+        self._debug('Headers removed: {}'.format(', '.join(header_names)))
 
     def replace_bearer_token(self, new_token):
         """Replaces a Bearer token in the current request."""
 
-        if self.messageIsRequest:
-            request = self.helpers.analyzeRequest(self.messageInfo)
-            headers = request.getHeaders()
-            headers = self.remove_header(headers, 'Authorization')
-            headers.add('Authorization: Bearer {}'.format(new_token))
-            body = self.messageInfo.getRequest()[request.getBodyOffset():]
-            new_request = self.helpers.buildHttpMessage(headers, body)
-            self.messageInfo.setRequest(new_request)
-            self._debug('Token replaced.')
+        if not self._in_context(context='request'): return
 
-    def enable_passive_audit_checks(self):
-        """Runs passive check methods against in-scope proxy traffic.
+        request = self.helpers.analyzeRequest(self.messageInfo)
+        headers = request.getHeaders()
+        headers = self._remove_header(headers, 'Authorization')
+        headers.add('Authorization: Bearer {}'.format(new_token))
+        body = self.messageInfo.getRequest()[request.getBodyOffset():]
+        new_request = self.helpers.buildHttpMessage(headers, body)
+        self.messageInfo.setRequest(new_request)
+        self._debug('Token replaced.')
 
-        Additional checks are added by creating new methods and prefixing the 
-        name with `_passive_request_` or `_passive_response_`. The second 
-        chunk of the method name determines what is analyzed by the method, 
-        and the method must receive it as an argument.
-        """
+    def passive_autocomplete_text(self):
+        """Checks for autocomplete on text fields in the current response."""
 
-        if self.toolFlag == self.callbacks.TOOL_PROXY and self._in_scope():
-            self._debug('Passive checks enabled.')
-            methods =[x for x in dir(self.__class__) if x.startswith('_passive_')]
-            for method in methods:
-                mode = method.split('_')[2]
-                if mode == 'request' and self.messageIsRequest:
-                    request = self.messageInfo.getRequest()
-                    getattr(self, method)(request)
-                elif mode == 'response' and not self.messageIsRequest:
-                    response = self.messageInfo.getResponse()
-                    getattr(self, method)(response)
-
-    def _passive_response_autocomplete_enabled(self, response):
-        """Checks for autocomplete on text form fields in a response."""
+        if not self._in_context(context='response',
+                                tools=[self.callbacks.TOOL_PROXY],
+                                scope=True): return
 
         import re
 
+        response = self.messageInfo.getResponse()
         results = re.findall(r'(<input [^>]*>)', response)
         for result in results:
             if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete', result):
-                self.create_issue(
+                self._create_issue(
                     issue_name='Text field with autocomplete enabled',
                     issue_detail='The following text field has autocomplete enabled:\n\n<ul><li>' + result.replace('<', '&lt;').replace('>', '&gt;') + '</li></ul>',
                     severity='Low',
                 )
         self._debug('Passive check applied: Autocomplete Enabled')
 
-    def _passive_response_verbose_headers(self, response):
-        """Checks for verbose headers in a response."""
+    def passive_verbose_headers(self):
+        """Checks for verbose headers in the current response."""
+
+        if not self._in_context(context='response',
+                                tools=[self.callbacks.TOOL_PROXY],
+                                scope=True): return
 
         bad_headers = ('server', 'x-powered-by', 'x-aspnet-version')
+        response = self.messageInfo.getResponse()
         headers = self.helpers.analyzeResponse(response).getHeaders()
         for header in headers:
             name = header.split(':')[0]
             # known bad headers
             if name.lower() in bad_headers:
-                self.create_issue(
+                self._create_issue(
                     issue_name='Verbose header',
                     issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
                     severity='Low',
                 )
             # custom headers
             elif name.lower().startswith('x-'):
-                self.create_issue(
+                self._create_issue(
                     issue_name='Interesting header',
                     issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
                     severity='Low',
@@ -143,7 +171,77 @@ class BaseScript(object):
                 )
         self._debug('Passive check applied: Verbose Headers')
 
-    def create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
+    def passive_link_finder(self, exclusions=[]):
+        """Finds links within JavaScript files."""
+
+        if not self._in_context(context='response',
+                                tools=[self.callbacks.TOOL_PROXY],
+                                scope=True): return
+
+        import re
+
+        regex_str = r"""
+
+            (?:"|')                                 # Start newline delimiter
+
+            (
+
+                ((?:[a-zA-Z]{1,10}://|//)           # Match a scheme [a-Z]*1-10 or //
+                [^"'/]{1,}\.                        # Match a domainname (any character + dot)
+                [a-zA-Z]{2,}[^"']{0,})              # The domainextension and/or path
+
+                |
+
+                ((?:/|\.\./|\./)                    # Start with /,../,./
+                [^"'><,;| *()(%%$^/\\\[\]]          # Next character can't be...
+                [^"'><,;|()]{1,})                   # Rest of the characters can't be
+
+                |
+
+                ([a-zA-Z0-9_\-/]{1,}/               # Relative endpoint with /
+                [a-zA-Z0-9_\-/]{1,}                 # Resource name
+                \.(?:[a-zA-Z]{1,4}|action)          # Rest + extension (length 1-4 or action)
+                (?:[\?|/][^"|']{0,}|))              # ? mark with parameters
+
+                |
+
+                ([a-zA-Z0-9_\-]{1,}                 # filename
+                \.(?:php|asp|aspx|jsp|json|
+                     action|html|js|txt|xml)        # . + extension
+                (?:\?[^"|']{0,}|))                  # ? mark with parameters
+
+            )
+
+            (?:"|')                                 # End newline delimiter
+
+        """
+
+        response = self.messageInfo.getResponse()
+        url = self.messageInfo.url.toString()
+        # check if js file
+        if url.endswith('.js'):
+            # exclude specified js files
+            if any(re.search(x, url) for x in exclusions):
+                self._debug('URL excluded: {}'.format(url))
+                return
+            self._debug('URL found: {}'.format(url))
+            print('{} ::'.format(url))
+            mime_type = self.helpers.analyzeResponse(response).getStatedMimeType()
+            links = []
+            if mime_type.lower() == 'script':
+                regex = re.compile(regex_str, re.VERBOSE)
+                links += list(set([m.group(1) for m in re.finditer(regex, response)]))
+            if links:
+                for counter, link in enumerate(links):
+                    self._debug('\t{} - {}'.format(counter, link))
+                    print('{} :: {}'.format(url, link))
+                self._create_issue(
+                    issue_name='Links found in JavaScript file',
+                    issue_detail='The following links were found in {}:\n\n<ul><li>{}</li></ul>'.format(url, '</li><li>'.join(links)),
+                    severity='Information',
+                )
+
+    def _create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
         """Creates a Burp Suite issue.
 
         Severity: High, Medium, Low, Information, False positive
@@ -166,13 +264,14 @@ class BaseScript(object):
         """Extracts multiple instances of a REGEX capture group from the 
         current response."""
 
+        if not self._in_context(context='response'): return
+
         import re
 
-        if not self.messageIsRequest:
-            response = self.messageInfo.getResponse()
-            matches = re.findall(pattern, response)
-            for match in matches:
-                print(match)
+        response = self.messageInfo.getResponse()
+        matches = re.findall(pattern, response)
+        for match in matches:
+            print(match)
 
     def replace_response_body(self, url_pattern, body):
         """Replaces the body of a response from a matched URL.
@@ -180,16 +279,17 @@ class BaseScript(object):
         Great for swapping SPA UI build definitions between user roles.
         """
 
+        if not self._in_context(context='response'): return
+
         import re
 
-        if not self.messageIsRequest:
-            url = self.messageInfo.url.toString()
-            if re.search(url_pattern, url):
-                response = self.messageInfo.getResponse()
-                headers = self.helpers.analyzeResponse(response).getHeaders()
-                new_response = self.helpers.buildHttpMessage(headers, self.helpers.stringToBytes(body))
-                self.messageInfo.setResponse(new_response)
-                self._debug('Response replaced from: {}'.format(url))
+        url = self.messageInfo.url.toString()
+        if re.search(url_pattern, url):
+            response = self.messageInfo.getResponse()
+            headers = self.helpers.analyzeResponse(response).getHeaders()
+            new_response = self.helpers.buildHttpMessage(headers, self.helpers.stringToBytes(body))
+            self.messageInfo.setResponse(new_response)
+            self._debug('Response replaced from: {}'.format(url))
 
 
 from burp import IScanIssue
