@@ -61,24 +61,6 @@ class BaseScript(object):
         if self.debug:
             print('[DEBUG] {}'.format(message))
 
-    def macro_extract(self, pattern):
-        """Extracts a REGEX capture group from a macro response for use in a 
-        request. Returns the extracted item.
-
-        Requires a session handling rule to pass the result of a macro to the 
-        extension.
-
-        Tip: Create and copy the REGEX pattern from the macro editor.
-        """
-
-        if not self._in_context(context='request', tools=[self.callbacks.TOOL_MACRO]): return
-
-        import re
-
-        response = self.macroItems[0].getResponse()
-        match = re.search(pattern, response)
-        return match.group(1)
-
     def help(self):
         """Displays this help interface."""
 
@@ -127,10 +109,8 @@ class BaseScript(object):
         self.messageInfo.setRequest(new_request)
         self._debug('Headers removed: {}'.format(', '.join(header_names)))
 
-    def replace_bearer_token(self, new_token):
-        """Replaces a Bearer token in the current request."""
-
-        if not self._in_context(context='request'): return
+    def _replace_bearer_token(self, new_token):
+        """Replaces the Bearer token in the current request."""
 
         request = self.helpers.analyzeRequest(self.messageInfo)
         headers = request.getHeaders()
@@ -140,6 +120,32 @@ class BaseScript(object):
         new_request = self.helpers.buildHttpMessage(headers, body)
         self.messageInfo.setRequest(new_request)
         self._debug('Token replaced.')
+
+    def replace_bearer_token(self, new_token):
+        """Replaces the Bearer token in the current request with the provided
+        token."""
+
+        if not self._in_context(context='request'): return
+
+        self._replace_bearer_token(new_token)
+
+    def macro_replace_bearer_token(self, pattern):
+        """Replaces the Bearer token in the current request with a token 
+        extracted from a macro response.
+
+        Requires a session handling rule to pass the result of a macro to the 
+        extension.
+
+        Tip: Create and copy the REGEX pattern from the macro editor.
+        """
+
+        if not self._in_context(context='request', tools=[self.callbacks.TOOL_MACRO]): return
+
+        import re
+
+        response = self.macroItems[0].getResponse()
+        match = re.search(pattern, response)
+        self._replace_bearer_token(match.group(1))
 
     def passive_autocomplete_text(self):
         """Checks for autocomplete on text fields in the current response."""

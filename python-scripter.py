@@ -73,7 +73,7 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
                         'toolFlag': toolFlag,
                         'messageIsRequest': messageIsRequest,
                         'messageInfo': messageInfo,
-                        'macroItems':macroItems
+                        'macroItems': macroItems
                         }
             exec(self.script, globals_, locals_)
         except Exception:
