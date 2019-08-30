@@ -18,11 +18,18 @@ class BaseScript(object):
             print('[DEBUG] {}'.format(message))
 
     def in_context(self, context=None, tools=[], scope=False):
-        """Checks the provided parameters against the current context."""
+        """Checks the provided parameters against the current context.
+
+        :param str context: Target message type for action, `request` or `response`
+        :param list tools:  List of tool flags for tools to act upon
+        :param bool scope:  Restrict action to scope?
+        :return:            Whether or not the current context matches
+        :rtype:             bool
+        """
 
         if (context and
-            context == 'request' and not self.messageIsRequest or
-            context == 'response' and self.messageIsRequest):
+            context.lower() == 'request' and not self.messageIsRequest or
+            context.lower() == 'response' and self.messageIsRequest):
             return False
         if (tools and self.toolFlag not in tools):
             return False
