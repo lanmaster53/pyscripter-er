@@ -24,9 +24,9 @@ class BaseScript(object):
                     context == 'response' and self.messageIsRequest):
                     return
                 toolFlags = [getattr(self.callbacks, 'TOOL_{}'.format(t.upper)) for t in tools]
-                if tools and self.toolFlag not in toolFlags:
+                if (tools and self.toolFlag not in toolFlags):
                     return
-                if scope and not self._in_scope():
+                if (scope and not self._in_scope()):
                     return
                 return func(self, *args, **kwargs)
             return wrapped
@@ -100,7 +100,7 @@ class BaseScript(object):
 
         if not self._in_context(context='request'): return
 
-        request = self.helpers.analyzeRequest(self.messageInfo)
+        request = self.helpers.analyzeRequest(self.messageInfo.getRequest())
         headers = request.getHeaders()
         for header_name in header_names:
             headers = self._remove_header(headers, header_name)
@@ -112,7 +112,7 @@ class BaseScript(object):
     def _replace_bearer_token(self, new_token):
         """Replaces the Bearer token in the current request."""
 
-        request = self.helpers.analyzeRequest(self.messageInfo)
+        request = self.helpers.analyzeRequest(self.messageInfo.getRequest())
         headers = request.getHeaders()
         headers = self._remove_header(headers, 'Authorization')
         headers.add('Authorization: Bearer {}'.format(new_token))
@@ -143,8 +143,8 @@ class BaseScript(object):
 
         import re
 
-        response = self.macroItems[0].getResponse()
-        match = re.search(pattern, response)
+        response_bytes = self.macroItems[0].getResponse()
+        match = re.search(pattern, response_bytes)
         self._replace_bearer_token(match.group(1))
 
     def passive_autocomplete_text(self):
@@ -156,15 +156,17 @@ class BaseScript(object):
 
         import re
 
-        response = self.messageInfo.getResponse()
-        results = re.findall(r'(<input [^>]*>)', response)
-        for result in results:
+        response_bytes = self.messageInfo.getResponse()
+        results = []
+        for result in re.findall(r'(<input [^>]*>)', response_bytes):
             if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete', result):
-                self._create_issue(
-                    issue_name='Text field with autocomplete enabled',
-                    issue_detail='The following text field has autocomplete enabled:\n\n<ul><li>' + result.replace('<', '&lt;').replace('>', '&gt;') + '</li></ul>',
-                    severity='Low',
-                )
+                results.append(result.replace('<', '&lt;').replace('>', '&gt;'))
+        if results:
+            self._create_issue(
+                issue_name='Text field with autocomplete enabled',
+                issue_detail='The following text fields have autocomplete enabled:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(results)),
+                severity='Low',
+            )
         self._debug('Passive check applied: Autocomplete Enabled')
 
     def passive_verbose_headers(self):
@@ -175,25 +177,31 @@ class BaseScript(object):
                                 scope=True): return
 
         bad_headers = ('server', 'x-powered-by', 'x-aspnet-version')
-        response = self.messageInfo.getResponse()
-        headers = self.helpers.analyzeResponse(response).getHeaders()
+        response_bytes = self.messageInfo.getResponse()
+        headers = self.helpers.analyzeResponse(response_bytes).getHeaders()
+        verbose_headers = []
+        interesting_headers = []
         for header in headers:
             name = header.split(':')[0]
             # known bad headers
             if name.lower() in bad_headers:
-                self._create_issue(
-                    issue_name='Verbose header',
-                    issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
-                    severity='Low',
-                )
+                verbose_headers.append(header)
             # custom headers
             elif name.lower().startswith('x-'):
-                self._create_issue(
-                    issue_name='Interesting header',
-                    issue_detail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
-                    severity='Low',
-                    confidence='Tentative',
-                )
+                interesting_headers.append(header)
+        if verbose_headers:
+            self._create_issue(
+                issue_name='Verbose header',
+                issue_detail='The following HTTP response headers may disclose sensitive information:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(verbose_headers)),
+                severity='Low',
+            )
+        if interesting_headers:
+            self._create_issue(
+                issue_name='Interesting header',
+                issue_detail='The following HTTP response headers may disclose sensitive information:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(interesting_headers)),
+                severity='Low',
+                confidence='Tentative',
+            )
         self._debug('Passive check applied: Verbose Headers')
 
     def passive_link_finder(self, exclusions=[]):
@@ -241,7 +249,7 @@ class BaseScript(object):
 
         """
 
-        response = self.messageInfo.getResponse()
+        response_bytes = self.messageInfo.getResponse()
         url = self.messageInfo.url.toString()
         # check if js file
         if url.endswith('.js'):
@@ -251,20 +259,75 @@ class BaseScript(object):
                 return
             self._debug('URL found: {}'.format(url))
             print('{} ::'.format(url))
-            mime_type = self.helpers.analyzeResponse(response).getStatedMimeType()
+            mime_type = self.helpers.analyzeResponse(response_bytes).getStatedMimeType()
             links = []
             if mime_type.lower() == 'script':
                 regex = re.compile(regex_str, re.VERBOSE)
-                links += list(set([m.group(1) for m in re.finditer(regex, response)]))
+                links += list(set([m.group(1) for m in re.finditer(regex, response_bytes)]))
             if links:
                 for counter, link in enumerate(links):
                     self._debug('\t{} - {}'.format(counter, link))
                     print('{} :: {}'.format(url, link))
                 self._create_issue(
                     issue_name='Links found in JavaScript file',
-                    issue_detail='The following links were found in {}:\n\n<ul><li>{}</li></ul>'.format(url, '</li><li>'.join(links)),
+                    issue_detail='The following links were found:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(links)),
                     severity='Information',
                 )
+
+    def _extract_dict_keys(self, var):
+        """Recursively extracts all keys from a JSON object."""
+
+        if isinstance(var, dict):
+            for k, v in var.items():
+                yield k
+                if isinstance(v, (dict, list)):
+                    for result in gen_dict_extract(v):
+                        yield result
+        elif isinstance(var, list):
+            for i in var:
+                for result in gen_dict_extract(i, key):
+                    yield result
+
+    def _get_content_type(self, headers):
+        """Gets the Content-Type header from a list of headers."""
+
+        for header in headers:
+            if header.lower().startswith("content-type:"):
+                self._debug(header)
+                return header.split(":")[1].lower()
+        return None
+
+    def passive_json_params(self):
+        """Finds JSON parameters within JSON responses."""
+
+        if not self._in_context(context='response',
+                                tools=[self.callbacks.TOOL_PROXY],
+                                scope=True): return
+
+        import json
+
+        supported_content_types = [
+            "application/json",
+            "text/json",
+            "text/x-json",
+        ]
+
+        response_bytes = self.messageInfo.getResponse()
+        response = self.helpers.analyzeResponse(response_bytes)
+        content_type = self._get_content_type(response.getHeaders()) or ''
+        for allowed in supported_content_types:
+            if content_type.find(allowed) > 0:
+                msg = response_bytes[response.getBodyOffset():].tostring()
+                self._debug('Body: {}'.format(msg))
+                json_obj = json.loads(msg)
+                params = list(self._extract_dict_keys(json_obj))
+                self._debug('Params: {}'.format(params))
+                self._create_issue(
+                    issue_name='JSON parameters',
+                    issue_detail='The following JSON parameters were found:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(params)),
+                    severity='Information',
+                )
+                break
 
     def _create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
         """Creates a Burp Suite issue.
@@ -273,7 +336,7 @@ class BaseScript(object):
         Confidence: Certain, Firm, Tentative
         """
 
-        issue = CustomIssue(
+        custom_issue = CustomIssue(
             BasePair=self.messageInfo,
             IssueName=issue_name,
             IssueDetail=issue_detail,
@@ -283,7 +346,13 @@ class BaseScript(object):
             Severity=severity,
             Confidence=confidence,
         )
-        self.callbacks.addScanIssue(issue)
+
+        url = self.messageInfo.url.toString()
+        for issue in self.callbacks.getScanIssues(url):
+            if custom_issue.isDuplicate(issue):
+                self._debug('Duplicate issue: {}'.format(custom_issue.IssueName))
+                return
+        self.callbacks.addScanIssue(custom_issue)
 
     def extract_all_from_response(self, pattern):
         """Extracts multiple instances of a REGEX capture group from the 
@@ -293,16 +362,13 @@ class BaseScript(object):
 
         import re
 
-        response = self.messageInfo.getResponse()
-        matches = re.findall(pattern, response)
+        response_bytes = self.messageInfo.getResponse()
+        matches = re.findall(pattern, response_bytes)
         for match in matches:
             print(match)
 
     def replace_response_body(self, url_pattern, body):
-        """Replaces the body of a response from a matched URL.
-
-        Great for swapping SPA UI build definitions between user roles.
-        """
+        """Replaces the body of a response from a matched URL."""
 
         if not self._in_context(context='response'): return
 
@@ -310,14 +376,16 @@ class BaseScript(object):
 
         url = self.messageInfo.url.toString()
         if re.search(url_pattern, url):
-            response = self.messageInfo.getResponse()
-            headers = self.helpers.analyzeResponse(response).getHeaders()
+            response_bytes = self.messageInfo.getResponse()
+            headers = self.helpers.analyzeResponse(response_bytes).getHeaders()
             new_response = self.helpers.buildHttpMessage(headers, self.helpers.stringToBytes(body))
             self.messageInfo.setResponse(new_response)
             self._debug('Response replaced from: {}'.format(url))
 
 
 from burp import IScanIssue
+from hashlib import md5
+import re
 
 
 class CustomIssue(IScanIssue):
@@ -335,6 +403,24 @@ class CustomIssue(IScanIssue):
         self.RemediationBackground = RemediationBackground # String or None
         self.Severity = Severity # "High", "Medium", "Low", "Information" or "False positive"
         self.Confidence = Confidence # "Certain", "Firm" or "Tentative"
+        self.Signature = self._signIssue()
+
+    def _signIssue(self):
+
+        sig = md5(self.IssueName
+            +self.IssueDetail
+            +self.Severity
+            +self.Confidence
+        ).hexdigest()
+        block = '<p>[sig:{}]</p>'.format(sig)
+        self.IssueDetail += block
+        return sig
+
+    def isDuplicate(self, issue):
+
+        m = re.search(r'\[sig:([^\]]+)\]', issue.issueDetail)
+        sig = m.group(1)
+        return self.Signature == sig
 
     def getHttpMessages(self):
 
