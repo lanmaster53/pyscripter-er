@@ -11,9 +11,15 @@ class BaseScript(object):
         self.macroItems = macroItems
         self.debug = False
 
+    def _debug(self, message):
+        """Provides an interface for verbose output."""
+
+        if self.debug:
+            print('[DEBUG] {}'.format(message))
+
     def _context(context=None, tools=[], scope=False):
         """Currently unused decorator because it hides the method's signature
-        from introspection, which is needed. See `_in_context` hack below.
+        from introspection, which is needed. See `in_context` hack below.
         """
 
         def wrapper(func):
@@ -26,13 +32,13 @@ class BaseScript(object):
                 toolFlags = [getattr(self.callbacks, 'TOOL_{}'.format(t.upper)) for t in tools]
                 if (tools and self.toolFlag not in toolFlags):
                     return
-                if (scope and not self._in_scope()):
+                if (scope and not self.in_scope()):
                     return
                 return func(self, *args, **kwargs)
             return wrapped
         return wrapper
 
-    def _in_context(self, context=None, tools=[], scope=False):
+    def in_context(self, context=None, tools=[], scope=False):
         """Checks the provided parameters against the current context."""
 
         if (context and
@@ -41,11 +47,11 @@ class BaseScript(object):
             return False
         if (tools and self.toolFlag not in tools):
             return False
-        if (scope and not self._in_scope()):
+        if (scope and not self.in_scope()):
             return False
         return True
 
-    def _in_scope(self):
+    def in_scope(self):
         """Determines if the current request is in scope."""
 
         in_scope = self.callbacks.isInScope(self.messageInfo.getUrl())
@@ -55,23 +61,17 @@ class BaseScript(object):
         self._debug('{} {}: {}'.format(mode, scope, url))
         return in_scope
 
-    def _debug(self, message):
-        """Provides an interface for verbose output."""
-
-        if self.debug:
-            print('[DEBUG] {}'.format(message))
-
     def help(self):
         """Displays this help interface."""
 
-        if not self._in_context(context='request'): return
+        if not self.in_context(context='request'): return
 
         print(help(self))
 
     def introspect(self):
         """Provides introspection into the Python Scripter API."""
 
-        if not self._in_context(context='request'): return
+        if not self.in_context(context='request'): return
 
         import sys
 
@@ -85,7 +85,7 @@ class BaseScript(object):
                 print(func(getattr(self, api)))
         self._debug('Introspection complete.')
 
-    def _remove_header(self, headers, header_name):
+    def remove_header(self, headers, header_name):
         """Removes a specific header from a list of headers."""
 
         for header in headers:
@@ -98,12 +98,12 @@ class BaseScript(object):
     def remove_headers(self, header_names):
         """Removes a list of headers from the current request."""
 
-        if not self._in_context(context='request'): return
+        if not self.in_context(context='request'): return
 
         request = self.helpers.analyzeRequest(self.messageInfo.getRequest())
         headers = request.getHeaders()
         for header_name in header_names:
-            headers = self._remove_header(headers, header_name)
+            headers = self.remove_header(headers, header_name)
         body = self.messageInfo.getRequest()[request.getBodyOffset():]
         new_request = self.helpers.buildHttpMessage(headers, body)
         self.messageInfo.setRequest(new_request)
@@ -114,7 +114,7 @@ class BaseScript(object):
 
         request = self.helpers.analyzeRequest(self.messageInfo.getRequest())
         headers = request.getHeaders()
-        headers = self._remove_header(headers, 'Authorization')
+        headers = self.remove_header(headers, 'Authorization')
         headers.add('Authorization: Bearer {}'.format(new_token))
         body = self.messageInfo.getRequest()[request.getBodyOffset():]
         new_request = self.helpers.buildHttpMessage(headers, body)
@@ -125,7 +125,7 @@ class BaseScript(object):
         """Replaces the Bearer token in the current request with the provided
         token."""
 
-        if not self._in_context(context='request'): return
+        if not self.in_context(context='request'): return
 
         self._replace_bearer_token(new_token)
 
@@ -139,7 +139,7 @@ class BaseScript(object):
         Tip: Create and copy the REGEX pattern from the macro editor.
         """
 
-        if not self._in_context(context='request', tools=[self.callbacks.TOOL_MACRO]): return
+        if not self.in_context(context='request', tools=[self.callbacks.TOOL_MACRO]): return
 
         import re
 
@@ -150,7 +150,7 @@ class BaseScript(object):
     def passive_autocomplete_text(self):
         """Checks for autocomplete on text fields in the current response."""
 
-        if not self._in_context(context='response',
+        if not self.in_context(context='response',
                                 tools=[self.callbacks.TOOL_PROXY],
                                 scope=True): return
 
@@ -162,7 +162,7 @@ class BaseScript(object):
             if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete', result):
                 results.append(result.replace('<', '&lt;').replace('>', '&gt;'))
         if results:
-            self._create_issue(
+            self.create_issue(
                 issue_name='Text field with autocomplete enabled',
                 issue_detail='The following text fields have autocomplete enabled:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(results)),
                 severity='Low',
@@ -172,7 +172,7 @@ class BaseScript(object):
     def passive_verbose_headers(self):
         """Checks for verbose headers in the current response."""
 
-        if not self._in_context(context='response',
+        if not self.in_context(context='response',
                                 tools=[self.callbacks.TOOL_PROXY],
                                 scope=True): return
 
@@ -190,13 +190,13 @@ class BaseScript(object):
             elif name.lower().startswith('x-'):
                 interesting_headers.append(header)
         if verbose_headers:
-            self._create_issue(
+            self.create_issue(
                 issue_name='Verbose header',
                 issue_detail='The following HTTP response headers may disclose sensitive information:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(verbose_headers)),
                 severity='Low',
             )
         if interesting_headers:
-            self._create_issue(
+            self.create_issue(
                 issue_name='Interesting header',
                 issue_detail='The following HTTP response headers may disclose sensitive information:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(interesting_headers)),
                 severity='Low',
@@ -207,7 +207,7 @@ class BaseScript(object):
     def passive_link_finder(self, exclusions=[]):
         """Finds links within JavaScript files."""
 
-        if not self._in_context(context='response',
+        if not self.in_context(context='response',
                                 tools=[self.callbacks.TOOL_PROXY],
                                 scope=True): return
 
@@ -268,7 +268,7 @@ class BaseScript(object):
                 for counter, link in enumerate(links):
                     self._debug('\t{} - {}'.format(counter, link))
                     print('{} :: {}'.format(url, link))
-                self._create_issue(
+                self.create_issue(
                     issue_name='Links found in JavaScript file',
                     issue_detail='The following links were found:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(links)),
                     severity='Information',
@@ -288,7 +288,7 @@ class BaseScript(object):
                 for result in gen_dict_extract(i, key):
                     yield result
 
-    def _get_content_type(self, headers):
+    def get_content_type(self, headers):
         """Gets the Content-Type header from a list of headers."""
 
         for header in headers:
@@ -300,7 +300,7 @@ class BaseScript(object):
     def passive_json_params(self):
         """Finds JSON parameters within JSON responses."""
 
-        if not self._in_context(context='response',
+        if not self.in_context(context='response',
                                 tools=[self.callbacks.TOOL_PROXY],
                                 scope=True): return
 
@@ -314,7 +314,7 @@ class BaseScript(object):
 
         response_bytes = self.messageInfo.getResponse()
         response = self.helpers.analyzeResponse(response_bytes)
-        content_type = self._get_content_type(response.getHeaders()) or ''
+        content_type = self.get_content_type(response.getHeaders()) or ''
         for allowed in supported_content_types:
             if content_type.find(allowed) > 0:
                 msg = response_bytes[response.getBodyOffset():].tostring()
@@ -322,14 +322,14 @@ class BaseScript(object):
                 json_obj = json.loads(msg)
                 params = list(self._extract_dict_keys(json_obj))
                 self._debug('Params: {}'.format(params))
-                self._create_issue(
+                self.create_issue(
                     issue_name='JSON parameters',
                     issue_detail='The following JSON parameters were found:\n\n<ul><li>{}</li></ul>'.format('</li><li>'.join(params)),
                     severity='Information',
                 )
                 break
 
-    def _create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
+    def create_issue(self, issue_name, issue_detail, issue_background=None, remediation_detail=None, remediation_background=None, severity='High', confidence='Certain'):
         """Creates a Burp Suite issue.
 
         Severity: High, Medium, Low, Information, False positive
@@ -358,7 +358,7 @@ class BaseScript(object):
         """Extracts multiple instances of a REGEX capture group from the 
         current response."""
 
-        if not self._in_context(context='response'): return
+        if not self.in_context(context='response'): return
 
         import re
 
@@ -370,7 +370,7 @@ class BaseScript(object):
     def replace_response_body(self, url_pattern, body):
         """Replaces the body of a response from a matched URL."""
 
-        if not self._in_context(context='response'): return
+        if not self.in_context(context='response'): return
 
         import re
 
