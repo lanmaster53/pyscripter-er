@@ -17,27 +17,6 @@ class BaseScript(object):
         if self.debug:
             print('[DEBUG] {}'.format(message))
 
-    def _context(context=None, tools=[], scope=False):
-        """Currently unused decorator because it hides the method's signature
-        from introspection, which is needed. See `in_context` hack below.
-        """
-
-        def wrapper(func):
-            @wraps(func)
-            def wrapped(self, *args, **kwargs):
-                if (context and
-                    context == 'request' and not self.messageIsRequest or
-                    context == 'response' and self.messageIsRequest):
-                    return
-                toolFlags = [getattr(self.callbacks, 'TOOL_{}'.format(t.upper)) for t in tools]
-                if (tools and self.toolFlag not in toolFlags):
-                    return
-                if (scope and not self.in_scope()):
-                    return
-                return func(self, *args, **kwargs)
-            return wrapped
-        return wrapper
-
     def in_context(self, context=None, tools=[], scope=False):
         """Checks the provided parameters against the current context."""
 
