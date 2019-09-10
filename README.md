@@ -6,11 +6,12 @@ PyScripter-er is designed to make wielding the power of Python Scripter easier b
 
 ## Usage
 
-1. Configure Burp Extender's Python Environment to use Jython 2.7.1.
-2. Place `pyscripterer.py` in the path configured for Burp Extender's Python Environment.
-3. Manually install the modified Python Scripter extension (included in this repo).
+1. Watch [this video](https://www.youtube.com/watch?v=U41D_d4JQLs&feature=youtu.be&t=1693) (from the linked time stamp) to get a basic understanding of the Python Scripter module.
+2. Configure Burp Extender's Python Environment to use Jython 2.7.1.
+3. Place `pyscripterer.py` in the path configured for Burp Extender's Python Environment.
+4. Manually install the modified Python Scripter extension (included in this repo).
     * The custom extension provides access to macros from within the script. Everything but the methods that require macros will work using the original Python Scripter extension.
-4. Paste the following script into the "Script" tab.
+5. Paste the following script into the "Script" tab.
 
 ```
 from pyscripterer import BaseScript as Script
@@ -21,9 +22,9 @@ script = Script(*args)
 script.help()
 ```
 
-5. Send a request from anywhere in Burp Suite.
-6. View the output in the Extender tab.
-7. Use methods independently, dependently, or with custom code to achieve a desired result.
+6. Send a request from anywhere in Burp Suite.
+7. View the output in the Extender tab.
+8. Use methods independently, dependently, or with custom code to achieve a desired result.
 
 ## Development Notes
 
