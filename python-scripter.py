@@ -61,7 +61,7 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
         return
 
     def performAction(self, currentRequest, macroItems):
-        self.processHttpMessage(self.callbacks.TOOL_MACRO, True, currentRequest, macroItems)
+        self.processHttpMessage(self.callbacks.TOOL_MACRO, 1, currentRequest, macroItems)
         return
 
     def processHttpMessage(self, toolFlag, messageIsRequest, messageInfo, macroItems=[]):
