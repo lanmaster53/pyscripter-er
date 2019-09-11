@@ -6,7 +6,7 @@ PyScripter-er is designed to make wielding the power of Python Scripter easier b
 
 ## Usage
 
-1. Watch [this video](https://www.youtube.com/watch?v=U41D_d4JQLs&feature=youtu.be&t=1693) (from the linked time stamp) to get a basic understanding of the Python Scripter module.
+1. Watch the [these videos](#videos) to gain a basic understanding of the Python Scripter extension and the PyScripter-er module.
 2. Configure Burp Extender's Python Environment to use Jython 2.7.1.
 3. Place `pyscripterer.py` in the path configured for Burp Extender's Python Environment.
 4. Manually install the modified Python Scripter extension (included in this repo).
@@ -25,39 +25,6 @@ script.help()
 6. Send a request from anywhere in Burp Suite.
 7. View the output in the Extender tab.
 8. Use methods independently, dependently, or with custom code to achieve a desired result.
-
-## Development Notes
-
-A message object is an Extender object that consists of both a request and a response. It represents a full request/response cycle.
-
-A message's context is defined by where it came from and what stage of the request/response cycle it is in. For instance, a request coming from Repeater, or a response headed back through the Proxy. Enforcing context is essential to preventing scripts from acting on unintended parts of the message.
-
-Scripts are evaluated on every request, response, and when a macro message is passed to the script from a session handling rule. Requests and responses from macros themselves are also evaluated, but are flagged as coming from the originating tool. The macro tool flag is only set when a message is sent from a macro to the Python Scripter extension using the "Run a macro" session handling rule.
-
-For example, when using a macro that interacts with the Python Scripter extension, the script is evaluated five times:
-
-| Step | Action | Tool Flag|
-| :---: | --- | :---: |
-| 1 | Macro request | any |
-| 2 | Macro response | any |
-| 3 | Session handling rule | macro |
-| 4 | Final request | any |
-| 5 | Final response | any |
-
-The macro message object from step 2 is evaluated by the script via the session handling rule in step 3 along with the original message object and the macro tool flag. Here, scripts can make modifications to the original message based on information from the macro message before sending the message in step 4. You would obviously want to restrict that logic to a very specific context so that the script doesn't try to make the same change the other 4 times the script is evaluated.
-
-When not using a macro, the flow is much simpler.
-
-| Step | Action | Tool Flag|
-| :---: | --- | :---: |
-| 1 | request | any |
-| 2 | response | any |
-
-If you log things with Logger++ like me, then the below message flow diagram may be useful for debugging. BLUF, Logger++ always sees the modified message.
-
-```
-Burp -> Scripter (request) -> Logger++ -> application -> Scripter (response) -> Logger++ -> Burp
-```
 
 ## Help
 
@@ -143,4 +110,47 @@ class BaseScript(__builtin__.object)
  |  replace_response_body(self, url_pattern, body)
  |      Replaces the body of a response from a matched URL.
  |  
+```
+
+## Videos
+
+### 1. Intro to Python Scripter (from time stamp)
+
+[![](https://img.youtube.com/vi/U41D_d4JQLs/0.jpg)](https://www.youtube.com/watch?v=U41D_d4JQLs&t=1693)
+
+### 2. Intro to PyScripter-er
+
+[![](https://img.youtube.com/vi/xntZRd6N5lQ/0.jpg)](https://www.youtube.com/watch?v=xntZRd6N5lQ)
+
+## Development Notes
+
+A message object is an Extender object that consists of both a request and a response. It represents a full request/response cycle.
+
+A message's context is defined by where it came from and what stage of the request/response cycle it is in. For instance, a request coming from Repeater, or a response headed back through the Proxy. Enforcing context is essential to preventing scripts from acting on unintended parts of the message.
+
+Scripts are evaluated on every request, response, and when a macro message is passed to the script from a session handling rule. Requests and responses from macros themselves are also evaluated, but are flagged as coming from the originating tool. The macro tool flag is only set when a message is sent from a macro to the Python Scripter extension using the "Run a macro" session handling rule.
+
+For example, when using a macro that interacts with the Python Scripter extension, the script is evaluated five times:
+
+| Step | Action | Tool Flag|
+| :---: | --- | :---: |
+| 1 | Macro request | any |
+| 2 | Macro response | any |
+| 3 | Session handling rule | macro |
+| 4 | Final request | any |
+| 5 | Final response | any |
+
+The macro message object from step 2 is evaluated by the script via the session handling rule in step 3 along with the original message object and the macro tool flag. Here, scripts can make modifications to the original message based on information from the macro message before sending the message in step 4. You would obviously want to restrict that logic to a very specific context so that the script doesn't try to make the same change the other 4 times the script is evaluated.
+
+When not using a macro, the flow is much simpler.
+
+| Step | Action | Tool Flag|
+| :---: | --- | :---: |
+| 1 | request | any |
+| 2 | response | any |
+
+If you log things with Logger++ like me, then the below message flow diagram may be useful for debugging. BLUF, Logger++ always sees the modified message.
+
+```
+Burp -> Scripter (request) -> Logger++ -> application -> Scripter (response) -> Logger++ -> Burp
 ```
