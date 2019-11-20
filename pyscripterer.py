@@ -414,7 +414,8 @@ class BaseScript(object):
             Confidence=confidence,
         )
 
-        url = self.messageInfo.url.toString()
+        rawUrl = self.messageInfo.url
+        url = rawUrl.getProtocol()+"://"+rawUrl.getHost()+rawUrl.getPath()
         for issue in self.callbacks.getScanIssues(url):
             if custom_issue.isDuplicate(issue):
                 self._debug('Duplicate issue: {}'.format(custom_issue.IssueName))
