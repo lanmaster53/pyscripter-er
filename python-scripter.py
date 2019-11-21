@@ -1,5 +1,5 @@
 from java.awt import Font
-from javax.swing import JScrollPane, JTextPane
+from javax.swing import JPanel, JScrollPane, JTextPane, JCheckBox, GroupLayout
 from javax.swing.text import SimpleAttributeSet
 
 from burp import IBurpExtender, ISessionHandlingAction, IExtensionStateListener, IHttpListener, ITab, IBurpExtenderCallbacks
@@ -14,11 +14,32 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
         self.callbacks = callbacks
         self.helpers = callbacks.helpers
 
+        self.checkboxEnable = JCheckBox('Enabled')
+        self.checkboxEnable.setSelected(False)
+        self.checkboxEnable.setEnabled(True)
+
         self.scriptpane = JTextPane()
         self.scriptpane.setFont(Font('Monospaced', Font.PLAIN, 11))
 
         self.scrollpane = JScrollPane()
         self.scrollpane.setViewportView(self.scriptpane)
+
+        self.tab = JPanel()
+        layout = GroupLayout(self.tab)
+        self.tab.setLayout(layout)
+        layout.setAutoCreateGaps(True)
+        layout.setAutoCreateContainerGaps(True)
+
+        layout.setHorizontalGroup(
+            layout.createParallelGroup()
+                .addComponent(self.checkboxEnable)
+                .addComponent(self.scrollpane)
+        )
+        layout.setVerticalGroup(
+            layout.createSequentialGroup()
+                .addComponent(self.checkboxEnable)
+                .addComponent(self.scrollpane)
+        )
 
         self._code = compile('', '<string>', 'exec')
         self._script = ''
@@ -65,6 +86,8 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
         return
 
     def processHttpMessage(self, toolFlag, messageIsRequest, messageInfo, macroItems=[]):
+        if not self.checkboxEnable.isSelected():
+            return
         try:
             globals_ = {}
             locals_  = {'extender': self,
@@ -84,7 +107,7 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
         return 'Script'
 
     def getUiComponent(self):
-        return self.scrollpane
+        return self.tab
 
     @property
     def script(self):
