@@ -89,8 +89,7 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
         if not self.checkboxEnable.isSelected():
             return
         try:
-            globals_ = {}
-            locals_  = {'extender': self,
+            globals_  = {'extender': self,
                         'callbacks': self.callbacks,
                         'helpers': self.helpers,
                         'toolFlag': toolFlag,
@@ -98,7 +97,7 @@ class BurpExtender(IBurpExtender, ISessionHandlingAction, IExtensionStateListene
                         'messageInfo': messageInfo,
                         'macroItems': macroItems
                         }
-            exec(self.script, globals_, locals_)
+            exec(self.script, globals_)
         except Exception:
             traceback.print_exc(file=self.callbacks.getStderr())
         return
