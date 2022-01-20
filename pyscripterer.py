@@ -337,6 +337,7 @@ class BaseScript(object):
                 regex = re.compile(regex_str, re.VERBOSE)
                 links += list(set([m.group(1) for m in re.finditer(regex, response_bytes)]))
             if links:
+                links.sort(key=lambda x:x[1])
                 for counter, link in enumerate(links):
                     self._debug('\t{} - {}'.format(counter, link))
                     print('{} :: {}'.format(url, link))
