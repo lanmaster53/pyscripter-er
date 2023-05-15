@@ -13,14 +13,15 @@ if not messageIsRequest:
             # Checks for autocomplete on text form fields.
             results = re.findall(r'(<input [^>]*>)', response)
             for result in results:
-                if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete', result):
+                if re.search(r'''type=['"]text['"]''', result) and not re.search(r'autocomplete=[\'"]off[\'"]', result):
                     issue = CustomIssue(
+                        callbacks=callbacks,
                         BasePair=messageInfo,
                         IssueName='Text field with autocomplete enabled',
                         IssueDetail='The following text field has autocomplete enabled:\n\n<ul><li>' + result.replace('<', '&lt;').replace('>', '&gt;') + '</li></ul>',
                         Severity='Low',
                     )
-                    callbacks.addScanIssue(issue)
+                    issue.addCustomIssue()
 
             # Checks for verbose headers.
             bad_headers = ('server', 'x-powered-by', 'x-aspnet-version')
@@ -29,9 +30,10 @@ if not messageIsRequest:
                 name = header.split(':')[0]
                 if name.lower() in bad_headers:
                     issue = CustomIssue(
+                        callbacks=callbacks,
                         BasePair=messageInfo,
                         IssueName='Verbose header',
                         IssueDetail='The following HTTP response header may disclose sensitive information:\n\n<ul><li>' + header + '</li></ul>',
                         Severity='Low',
                     )
-                    callbacks.addScanIssue(issue)
+                    issue.addCustomIssue()
